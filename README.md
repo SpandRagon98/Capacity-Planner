@@ -1,6 +1,6 @@
 # Capexity
 
-A local-first task and capacity planning workspace built with React, Vinext, and shadcn/ui. The interface uses Montserrat throughout and starts with an empty workspace so teams can create separate plans or standalone tasks, add subtasks to either, assign multiple owners, schedule start and calculated end times, and export the hierarchy to Excel. Light and dark themes are included.
+A shared task and capacity planning workspace built with React, Vinext, D1, and shadcn/ui. Spandan and Mandhya can create named workspaces, work on the same saved plans and tasks, and receive updates made by the other member. The interface uses Montserrat throughout and includes subtasks, multiple owners, scheduling, Gantt charts, Excel export, and light and dark themes.
 
 ## Run locally
 
@@ -18,10 +18,10 @@ npx tsc --noEmit
 npm run build
 ```
 
-The static site is written to `dist/client`.
+The server-backed app is written to `dist/server` with browser assets in `dist/client`.
 
 ## Deployment
 
-Every push to `main` runs `.github/workflows/deploy.yml`, builds the static site, and publishes it to GitHub Pages.
+Every push to `main` runs `.github/workflows/deploy.yml`; the GitHub Pages address forwards visitors to the shared server-backed deployment.
 
 > The login is a client-side prototype gate, not production authentication. Do not store sensitive data in the hosted demo.

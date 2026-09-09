@@ -42,6 +42,7 @@ export type ActivityEvent = {
 };
 
 export type Workspace = { tasks: PlannerTask[]; plans: Plan[]; activity: ActivityEvent[] };
+export type WorkspaceSummary = { id: string; name: string; description: string; updatedAt: string; version: number; role: 'owner' | 'editor' };
 
 export const statusColors: Record<TaskStatus, string> = {
   Starting: '#8CC8F0',
@@ -149,6 +150,31 @@ export async function saveWorkspace(workspace: Workspace): Promise<void> {
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
+}
+
+async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set('Content-Type', 'application/json');
+  const response = await fetch(url, { ...init, headers });
+  const value = await response.json().catch(() => ({})) as T & { error?: string };
+  if (!response.ok) throw Object.assign(new Error(value.error || 'Request failed'), { status: response.status, value });
+  return value;
+}
+
+export async function listSharedWorkspaces() {
+  return apiJson<{ workspaces: WorkspaceSummary[]; email: string }>('/api/workspaces');
+}
+
+export async function createSharedWorkspace(name: string) {
+  return apiJson<{ workspace: WorkspaceSummary }>('/api/workspaces', { method: 'POST', body: JSON.stringify({ name }) });
+}
+
+export async function loadSharedWorkspace(id: string) {
+  return apiJson<{ workspace: Workspace; meta: WorkspaceSummary }>(`/api/workspaces/${encodeURIComponent(id)}`);
+}
+
+export async function saveSharedWorkspace(id: string, workspace: Workspace, expectedVersion: number) {
+  return apiJson<{ saved: true; version: number; updatedAt: string }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ workspace, expectedVersion }) });
 }
 
 export function nextWorkingDay(dateText: string) {

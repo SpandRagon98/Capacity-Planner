@@ -6,7 +6,7 @@ const montserrat = Montserrat({ variable: '--font-montserrat', subsets: ['latin'
 
 export const metadata: Metadata = {
   title: 'Capexity — Task & Capacity Planner',
-  description: 'Local-first project planning, daily execution, and workload management.',
+  description: 'Shared project planning, daily execution, Gantt scheduling, and workload management.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

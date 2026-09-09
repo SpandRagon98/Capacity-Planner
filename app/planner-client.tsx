@@ -1,9 +1,9 @@
 'use client';
 
-import { type CSSProperties, useCallback, useEffect, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Archive, CalendarCheck2, CalendarDays, ChartNoAxesGantt, Check, ChevronRight, Circle,
-  Clock3, Copy, Download, FileSpreadsheet, FolderKanban, History, Home, ListTodo,
+  Clock3, Cloud, Copy, Download, FileSpreadsheet, FolderKanban, History, Home, ListTodo,
   LockKeyhole, LogOut, Moon, Pencil, Plus, Search, Settings, Sun, Trash2, UsersRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,8 +18,9 @@ import {
   SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
 import {
-  calculateEndTime, closeDay, exportWorkbook, loadWorkspace, makeId, Plan, PlannerTask, saveWorkspace,
-  statusColors, TaskPriority, TaskStatus, todayIso, Workspace,
+  calculateEndTime, closeDay, createSharedWorkspace, exportWorkbook, listSharedWorkspaces,
+  loadSharedWorkspace, loadWorkspace, makeId, Plan, PlannerTask, saveSharedWorkspace,
+  statusColors, TaskPriority, TaskStatus, todayIso, Workspace, WorkspaceSummary,
 } from '@/lib/planner';
 
 type View = 'Home' | 'Today' | 'Tasks' | 'Plans' | 'Gantt' | 'Workload' | 'Calendar' | 'History' | 'Export' | 'Settings';
@@ -332,29 +333,137 @@ function ExportView({ workspace, onMessage }: { workspace: Workspace; onMessage:
 function SettingsView({ theme, workspace, onThemeChange, onRestore, onMessage }: { theme: Theme; workspace: Workspace; onThemeChange: (theme: Theme) => void; onRestore: (workspace: Workspace) => void; onMessage: (message: string) => void }) {
   function backup() { const url = URL.createObjectURL(new Blob([JSON.stringify(workspace, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = `Capexity_backup_${todayIso()}.json`; link.click(); URL.revokeObjectURL(url); onMessage('Backup downloaded'); }
   function restore(file?: File) { if (!file) return; const reader = new FileReader(); reader.onload = () => { try { if (typeof reader.result !== 'string') throw new Error(); const value = JSON.parse(reader.result) as Workspace; if (!Array.isArray(value.tasks) || !Array.isArray(value.plans)) throw new Error(); onRestore({ tasks: value.tasks, plans: value.plans, activity: Array.isArray(value.activity) ? value.activity : [] }); onMessage('Backup restored'); } catch { onMessage('That backup file is not valid'); } }; reader.readAsText(file); }
-  return <section className="settings-simple"><article className="surface"><div className="setting-row"><span className="setting-icon">{theme === 'dark' ? <Moon /> : <Sun />}</span><div><h3>Dark mode</h3><p>Use a darker interface across the entire app.</p></div><Switch checked={theme === 'dark'} onCheckedChange={(checked) => onThemeChange(checked ? 'dark' : 'light')} aria-label="Toggle dark mode" /></div></article><article className="surface"><div className="setting-row"><span className="setting-icon"><Download /></span><div><h3>Backup and restore</h3><p>Keep a portable JSON copy of all local plans, tasks, and history.</p></div><div className="setting-actions"><Button variant="outline" onClick={backup}>Download backup</Button><label className="restore-button">Restore<input type="file" accept="application/json" onChange={(event) => restore(event.target.files?.[0])} /></label></div></div></article><article className="surface"><h3>How the workspace works</h3><div className="help-steps"><span><b>1</b><p><strong>Create a plan</strong> when several tasks belong together.</p></span><span><b>2</b><p><strong>Create a standalone task</strong> when it does not need a plan.</p></span><span><b>3</b><p><strong>Add a subtask</strong> from any main task.</p></span><span><b>4</b><p><strong>Enter time only if useful.</strong> It is always optional.</p></span></div></article></section>;
+  return <section className="settings-simple"><article className="surface"><div className="setting-row"><span className="setting-icon">{theme === 'dark' ? <Moon /> : <Sun />}</span><div><h3>Dark mode</h3><p>Use a darker interface across the entire app.</p></div><Switch checked={theme === 'dark'} onCheckedChange={(checked) => onThemeChange(checked ? 'dark' : 'light')} aria-label="Toggle dark mode" /></div></article><article className="surface"><div className="setting-row"><span className="setting-icon"><Download /></span><div><h3>Backup and restore</h3><p>Download a portable copy of this shared workspace or restore one into it.</p></div><div className="setting-actions"><Button variant="outline" onClick={backup}>Download backup</Button><label className="restore-button">Restore<input type="file" accept="application/json" onChange={(event) => restore(event.target.files?.[0])} /></label></div></div></article><article className="surface"><h3>How the workspace works</h3><div className="help-steps"><span><b>1</b><p><strong>Create a plan</strong> when several tasks belong together.</p></span><span><b>2</b><p><strong>Create a standalone task</strong> when it does not need a plan.</p></span><span><b>3</b><p><strong>Add a subtask</strong> from any main task.</p></span><span><b>4</b><p><strong>Changes save automatically</strong> for everyone in the workspace.</p></span></div></article></section>;
 }
 
 function Dashboard({ email, onSignOut }: { email: string; onSignOut: () => void }) {
   const [active, setActive] = useState<View>('Home');
   const [workspace, setWorkspace] = useState<Workspace>({ tasks: [], plans: [], activity: [] });
+  const [workspaceList, setWorkspaceList] = useState<WorkspaceSummary[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState('');
+  const [syncState, setSyncState] = useState<'Saved' | 'Saving…' | 'Syncing…'>('Syncing…');
   const [loaded, setLoaded] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => typeof window !== 'undefined' && localStorage.getItem('tcp-theme') === 'dark' ? 'dark' : 'light');
   const [taskState, setTaskState] = useState<TaskDraftState>({ open: false, task: null });
   const [planState, setPlanState] = useState<{ open: boolean; plan: Plan | null }>({ open: false, plan: null });
   const [message, setMessage] = useState('');
+  const versionRef = useRef(0);
+  const activeWorkspaceIdRef = useRef('');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savePendingRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
-  useEffect(() => {
-    void loadWorkspace().then((value) => { setWorkspace(value); setLoaded(true); }).catch(() => setLoaded(true));
+  const selectWorkspace = useCallback(async (id: string) => {
+    setSyncState('Syncing…');
+    const detail = await loadSharedWorkspace(id);
+    activeWorkspaceIdRef.current = id;
+    versionRef.current = detail.meta.version;
+    setActiveWorkspaceId(id);
+    setWorkspace(detail.workspace);
+    localStorage.setItem('capexity-workspace-id', id);
+    setSyncState('Saved');
+    setLoaded(true);
   }, []);
+
+  useEffect(() => {
+    let activeRequest = true;
+    async function initialize() {
+      try {
+        const listing = await listSharedWorkspaces();
+        let summaries = listing.workspaces;
+        let created = false;
+        if (!summaries.length) {
+          const result = await createSharedWorkspace('Shared workspace');
+          summaries = [result.workspace];
+          created = true;
+        }
+        if (!activeRequest) return;
+        setWorkspaceList(summaries);
+        const preferred = localStorage.getItem('capexity-workspace-id');
+        const target = summaries.find((item) => item.id === preferred)?.id || summaries[0].id;
+        const detail = await loadSharedWorkspace(target);
+        if (!activeRequest) return;
+        let nextWorkspace = detail.workspace;
+        let nextVersion = detail.meta.version;
+        if (created) {
+          const local = await loadWorkspace().catch(() => ({ tasks: [], plans: [], activity: [] }));
+          if (local.tasks.length || local.plans.length) {
+            const saved = await saveSharedWorkspace(target, local, nextVersion);
+            nextWorkspace = local;
+            nextVersion = saved.version;
+            setMessage('Your existing tasks were moved into the shared workspace');
+          }
+        }
+        activeWorkspaceIdRef.current = target;
+        versionRef.current = nextVersion;
+        setActiveWorkspaceId(target);
+        setWorkspace(nextWorkspace);
+        setSyncState('Saved');
+        setLoaded(true);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Could not open the shared workspace');
+        setLoaded(true);
+      }
+    }
+    void initialize();
+    return () => { activeRequest = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    const interval = window.setInterval(() => {
+      if (savePendingRef.current) return;
+      void loadSharedWorkspace(activeWorkspaceId).then((detail) => {
+        if (detail.meta.version > versionRef.current) {
+          versionRef.current = detail.meta.version;
+          setWorkspace(detail.workspace);
+          setWorkspaceList((current) => current.map((item) => item.id === activeWorkspaceId ? detail.meta : item));
+          setMessage('Workspace updated by another member');
+        }
+      }).catch(() => undefined);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [activeWorkspaceId]);
+
+  useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
   const persist = useCallback((next: Workspace) => {
     setWorkspace(next);
-    void saveWorkspace(next).catch(() => setMessage('Could not save this change'));
+    const id = activeWorkspaceIdRef.current;
+    if (!id) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    savePendingRef.current = true;
+    setSyncState('Saving…');
+    saveTimerRef.current = setTimeout(() => {
+      const expectedVersion = versionRef.current;
+      void saveSharedWorkspace(id, next, expectedVersion).then((result) => {
+        versionRef.current = result.version;
+        savePendingRef.current = false;
+        setSyncState('Saved');
+        setWorkspaceList((current) => current.map((item) => item.id === id ? { ...item, version: result.version, updatedAt: result.updatedAt } : item));
+      }).catch((error: Error & { status?: number; value?: { workspace?: Workspace; meta?: { version?: number } } }) => {
+        savePendingRef.current = false;
+        if (error.status === 409 && error.value?.workspace && error.value.meta?.version) {
+          versionRef.current = error.value.meta.version;
+          setWorkspace(error.value.workspace);
+          setMessage('Another member saved first. Their latest version was loaded so no work is silently overwritten.');
+        } else setMessage('Could not save this change');
+        setSyncState('Saved');
+      });
+    }, 300);
   }, []);
+
+  const addWorkspace = useCallback(() => {
+    const name = window.prompt('Name this workspace');
+    if (!name?.trim()) return;
+    setSyncState('Syncing…');
+    void createSharedWorkspace(name.trim()).then((result) => {
+      setWorkspaceList((current) => [result.workspace, ...current]);
+      return selectWorkspace(result.workspace.id);
+    }).catch(() => { setSyncState('Saved'); setMessage('Could not create the workspace'); });
+  }, [selectWorkspace]);
   const saveTask = useCallback((task: PlannerTask) => {
     const existing = workspace.tasks.find((item) => item.id === task.id);
     const now = new Date().toISOString();
@@ -413,7 +522,7 @@ function Dashboard({ email, onSignOut }: { email: string; onSignOut: () => void 
   if (!loaded) return <main className="boot-screen"><span className="brand-mark"><span /></span></main>;
   const profile = email.split('@')[0];
   return <SidebarProvider><Sidebar className="planner-sidebar" collapsible="icon"><SidebarHeader><div className="sidebar-brand"><span className="brand-mark"><span /></span><strong>Capexity</strong></div></SidebarHeader><SidebarContent><SidebarMenu>{navItems.map((item) => <SidebarMenuItem key={item.label}><SidebarMenuButton isActive={active === item.label} tooltip={item.label} onClick={() => setActive(item.label)}><item.icon /><span>{item.label}</span></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarContent><SidebarFooter><div className="sidebar-profile"><span className="avatar">{profile.slice(0, 2).toUpperCase()}</span><div><strong>{profile}</strong><small>{email}</small></div><button aria-label="Sign out" onClick={onSignOut}><LogOut /></button></div></SidebarFooter></Sidebar>
-    <SidebarInset className="app-canvas"><header className="topbar"><div><SidebarTrigger /><span>{active}</span></div><div><Button variant="outline" onClick={() => setPlanState({ open: true, plan: null })}><FolderKanban /> New plan</Button><Button onClick={() => openTask()}><Plus /> New task</Button></div></header><main className="workspace"><div className="page-heading"><div><h1>{viewCopy[active].title}</h1><p>{viewCopy[active].subtitle}</p></div></div><div className="view-stage" key={active}>{content}</div></main>{message && <button className="toast-message" onClick={() => setMessage('')}>{message}<span>×</span></button>}</SidebarInset>
+    <SidebarInset className="app-canvas"><header className="topbar"><div className="workspace-controls"><SidebarTrigger /><Cloud /><NativeSelect aria-label="Active workspace" value={activeWorkspaceId} onChange={(event) => { void selectWorkspace(event.target.value).catch(() => setMessage('Could not open that workspace')); }}>{workspaceList.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect><Button variant="ghost" size="icon-sm" aria-label="Create workspace" title="Create workspace" onClick={addWorkspace}><Plus /></Button><span className={`sync-badge ${syncState === 'Saved' ? 'is-saved' : ''}`}>{syncState}</span></div><div><Button variant="outline" onClick={() => setPlanState({ open: true, plan: null })}><FolderKanban /> New plan</Button><Button onClick={() => openTask()}><Plus /> New task</Button></div></header><main className="workspace"><div className="page-heading"><div><h1>{viewCopy[active].title}</h1><p>{viewCopy[active].subtitle}</p></div></div><div className="view-stage" key={active}>{content}</div></main>{message && <button className="toast-message" onClick={() => setMessage('')}>{message}<span>×</span></button>}</SidebarInset>
     <TaskDrawer state={taskState} plans={workspace.plans} tasks={workspace.tasks} onOpenChange={(open) => setTaskState((current) => ({ ...current, open }))} onSave={saveTask} />
     <PlanDrawer open={planState.open} plan={planState.plan} onOpenChange={(open) => setPlanState((current) => ({ ...current, open }))} onSave={savePlan} />
   </SidebarProvider>;
