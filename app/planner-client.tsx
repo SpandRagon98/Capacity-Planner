@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useState } from 'react';
 import {
   Archive, CalendarCheck2, CalendarDays, ChartNoAxesGantt, Check, ChevronRight, Circle,
   Clock3, Copy, Download, FileSpreadsheet, FolderKanban, History, Home, ListTodo,
@@ -15,14 +15,14 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Switch } from '@/components/ui/switch';
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu,
-  SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger,
+  SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
 import {
   calculateEndTime, closeDay, exportWorkbook, loadWorkspace, makeId, Plan, PlannerTask, saveWorkspace,
   statusColors, TaskPriority, TaskStatus, todayIso, Workspace,
 } from '@/lib/planner';
 
-type View = 'Home' | 'Today' | 'Tasks' | 'Plans' | 'Timeline' | 'Workload' | 'Calendar' | 'History' | 'Export' | 'Settings';
+type View = 'Home' | 'Today' | 'Tasks' | 'Plans' | 'Gantt' | 'Workload' | 'Calendar' | 'History' | 'Export' | 'Settings';
 type Theme = 'light' | 'dark';
 type TaskDraftState = { open: boolean; task: PlannerTask | null; parentId?: string; planId?: string };
 
@@ -31,7 +31,7 @@ const navItems: { label: View; icon: typeof Home }[] = [
   { label: 'Today', icon: CalendarCheck2 },
   { label: 'Tasks', icon: ListTodo },
   { label: 'Plans', icon: FolderKanban },
-  { label: 'Timeline', icon: ChartNoAxesGantt },
+  { label: 'Gantt', icon: ChartNoAxesGantt },
   { label: 'Workload', icon: UsersRound },
   { label: 'Calendar', icon: CalendarDays },
   { label: 'History', icon: History },
@@ -44,7 +44,7 @@ const viewCopy: Record<View, { title: string; subtitle: string }> = {
   Today: { title: 'Today', subtitle: 'Only the work scheduled for today.' },
   Tasks: { title: 'Standalone tasks', subtitle: 'Tasks that are not part of a plan.' },
   Plans: { title: 'Plans', subtitle: 'Keep planned work separate and organized.' },
-  Timeline: { title: 'Timeline', subtitle: 'See scheduled work across upcoming dates.' },
+  Gantt: { title: 'Gantt chart', subtitle: 'See scheduled work and plan timing at a glance.' },
   Workload: { title: 'Workload', subtitle: 'Time entered across each owner.' },
   Calendar: { title: 'Calendar', subtitle: 'Browse work grouped by its planned date.' },
   History: { title: 'History', subtitle: 'A clear record of changes and completed work.' },
@@ -109,6 +109,7 @@ function TaskDrawer({ state, plans, tasks, onOpenChange, onSave }: {
   state: TaskDraftState; plans: Plan[]; tasks: PlannerTask[];
   onOpenChange: (open: boolean) => void; onSave: (task: PlannerTask) => void;
 }) {
+  const { state: sidebarState, isMobile } = useSidebar();
   const [draft, setDraft] = useState<PlannerTask>(emptyTask);
   useEffect(() => {
     if (!state.open) return;
@@ -134,9 +135,10 @@ function TaskDrawer({ state, plans, tasks, onOpenChange, onSave }: {
     onSave({ ...draft, title: draft.title.trim(), owners: draft.owners.map((owner) => owner.trim()).filter(Boolean), tags: draft.tags.map((tag) => tag.trim()).filter(Boolean), endTime: calculateEndTime(draft.startTime, draft.timeHours), progress: draft.status === 'Completed' ? 100 : draft.progress, updatedAt: new Date().toISOString() });
     onOpenChange(false);
   }
-  return <Sheet open={state.open} onOpenChange={onOpenChange}><SheetContent className="editor-sheet sm:max-w-[520px]">
+  const editorStyle = { '--task-editor-left': isMobile ? '0px' : sidebarState === 'collapsed' ? '3rem' : '16rem' } as CSSProperties;
+  return <Sheet open={state.open} onOpenChange={onOpenChange}><SheetContent className="editor-sheet task-editor-sheet" style={editorStyle}>
     <SheetHeader><p className="eyebrow">{draft.parentId ? 'Subtask' : 'Task'}</p><SheetTitle>{state.task ? 'Edit task' : draft.parentId ? 'Add subtask' : 'Add task'}</SheetTitle><SheetDescription>Only the title is required. Add time or dates when useful.</SheetDescription></SheetHeader>
-    <form id="task-form" onSubmit={submit} className="editor-form">
+    <form id="task-form" onSubmit={submit} className="editor-form task-editor-form">
       <label className="wide" htmlFor="task-title">Title<Input id="task-title" value={draft.title} onChange={(event) => field('title', event.target.value)} placeholder="What needs to be done?" /></label>
       <label htmlFor="task-plan">Plan<NativeSelect id="task-plan" value={draft.planId || ''} onChange={(event) => field('planId', event.target.value || undefined)} disabled={Boolean(parent)}><NativeSelectOption value="">No plan</NativeSelectOption>{plans.map((plan) => <NativeSelectOption key={plan.id} value={plan.id}>{plan.name}</NativeSelectOption>)}</NativeSelect></label>
       <label htmlFor="task-parent">Parent task<NativeSelect id="task-parent" value={draft.parentId || ''} onChange={(event) => selectParent(event.target.value)} disabled={Boolean(state.parentId)}><NativeSelectOption value="">None</NativeSelectOption>{topLevelTasks.map((task) => <NativeSelectOption key={task.id} value={task.id}>{task.title}</NativeSelectOption>)}</NativeSelect></label>
@@ -148,9 +150,9 @@ function TaskDrawer({ state, plans, tasks, onOpenChange, onSave }: {
       <label htmlFor="task-priority">Priority<NativeSelect id="task-priority" value={draft.priority} onChange={(event) => field('priority', event.target.value as TaskPriority)}><NativeSelectOption>Low</NativeSelectOption><NativeSelectOption>Medium</NativeSelectOption><NativeSelectOption>High</NativeSelectOption></NativeSelect></label>
       <label htmlFor="task-planned-date">Planned date <small>optional</small><Input id="task-planned-date" type="date" value={draft.plannedDate || ''} onChange={(event) => field('plannedDate', event.target.value || undefined)} /></label>
       <label htmlFor="task-due-date">Due date <small>optional</small><Input id="task-due-date" type="date" value={draft.dueDate || ''} onChange={(event) => field('dueDate', event.target.value || undefined)} /></label>
-      <label className="wide" htmlFor="task-progress">Progress <small>{draft.progress}%</small><input id="task-progress" type="range" min="0" max="100" step="5" value={draft.progress} onChange={(event) => field('progress', Number(event.target.value))} /></label>
-      <label className="wide" htmlFor="task-tags">Tags <small>separate with commas</small><Input id="task-tags" value={draft.tags.join(', ')} onChange={(event) => field('tags', event.target.value.split(',').map((tag) => tag.trimStart()))} placeholder="Design, Review" /></label>
-      <label className="wide" htmlFor="task-dependencies">Depends on <small>optional</small><NativeSelect id="task-dependencies" value={draft.dependencyIds[0] || ''} onChange={(event) => field('dependencyIds', event.target.value ? [event.target.value] : [])}><NativeSelectOption value="">No dependency</NativeSelectOption>{tasks.filter((task) => task.id !== draft.id && task.id !== draft.parentId).map((task) => <NativeSelectOption value={task.id} key={task.id}>{task.title}</NativeSelectOption>)}</NativeSelect></label>
+      <label htmlFor="task-progress">Progress <small>{draft.progress}%</small><input id="task-progress" type="range" min="0" max="100" step="5" value={draft.progress} onChange={(event) => field('progress', Number(event.target.value))} /></label>
+      <label htmlFor="task-tags">Tags <small>separate with commas</small><Input id="task-tags" value={draft.tags.join(', ')} onChange={(event) => field('tags', event.target.value.split(',').map((tag) => tag.trimStart()))} placeholder="Design, Review" /></label>
+      <label className="span-two" htmlFor="task-dependencies">Depends on <small>optional</small><NativeSelect id="task-dependencies" value={draft.dependencyIds[0] || ''} onChange={(event) => field('dependencyIds', event.target.value ? [event.target.value] : [])}><NativeSelectOption value="">No dependency</NativeSelectOption>{tasks.filter((task) => task.id !== draft.id && task.id !== draft.parentId).map((task) => <NativeSelectOption value={task.id} key={task.id}>{task.title}</NativeSelectOption>)}</NativeSelect></label>
       <label className="wide" htmlFor="task-notes">Notes <small>optional</small><textarea id="task-notes" value={draft.notes || ''} onChange={(event) => field('notes', event.target.value || undefined)} placeholder="Add a short note" /></label>
     </form>
     <SheetFooter><Button variant="outline" type="button" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" form="task-form">Save task</Button></SheetFooter>
@@ -251,7 +253,7 @@ function PlansView({ workspace, onCreatePlan, onEditPlan, onCreateTask, ...actio
   const progress = planTasks.length ? Math.round(completed / planTasks.length * 100) : 0;
   return <div className="plans-layout">
     <aside className="plan-list"><Button onClick={onCreatePlan}><Plus /> New plan</Button>{workspace.plans.map((plan) => { const count = workspace.tasks.filter((task) => task.planId === plan.id).length; return <button className={plan.id === selectedPlan.id ? 'active' : ''} key={plan.id} onClick={() => setSelectedId(plan.id)}><i style={{ background: plan.color }} /><span><strong>{plan.name}</strong><small>{count} {count === 1 ? 'item' : 'items'}</small></span><ChevronRight /></button>; })}</aside>
-    <section className="surface plan-workspace"><div className="section-heading"><div><span className="plan-kicker" style={{ background: selectedPlan.color }} /> <p>Plan</p><h2>{selectedPlan.name}</h2><p>{selectedPlan.description || 'No description added.'}</p></div><div className="heading-actions"><Button variant="outline" onClick={() => onEditPlan(selectedPlan)}><Pencil /> Edit plan</Button><Button onClick={() => onCreateTask(selectedPlan.id)}><Plus /> Add task</Button></div></div><div className="plan-progress"><span>{progress}% complete</span><Progress value={progress} /></div><TaskList tasks={planTasks} plans={workspace.plans} emptyTitle="This plan has no tasks" emptyDescription="Add a task now. You can add subtasks beneath it afterward." {...actions} onCreate={() => onCreateTask(selectedPlan.id)} /></section>
+    <section className="surface plan-workspace"><div className="section-heading"><div><span className="plan-kicker" style={{ background: selectedPlan.color }} /> <p>Plan</p><h2>{selectedPlan.name}</h2><p>{selectedPlan.description || 'No description added.'}</p></div><div className="heading-actions"><Button variant="outline" onClick={() => onEditPlan(selectedPlan)}><Pencil /> Edit plan</Button><Button onClick={() => onCreateTask(selectedPlan.id)}><Plus /> Add task</Button></div></div><div className="plan-progress"><span>{progress}% complete</span><Progress value={progress} /></div><div className="plan-gantt-heading"><div><h3>Plan schedule</h3><p>Planned date starts each bar; due date sets its finish.</p></div></div><GanttChart tasks={planTasks} plans={workspace.plans} onEdit={actions.onEdit} emptyAction={() => onCreateTask(selectedPlan.id)} /><div className="plan-task-heading"><h3>Tasks and subtasks</h3></div><TaskList tasks={planTasks} plans={workspace.plans} emptyTitle="This plan has no tasks" emptyDescription="Add a task now. You can add subtasks beneath it afterward." {...actions} onCreate={() => onCreateTask(selectedPlan.id)} /></section>
   </div>;
 }
 
@@ -262,10 +264,41 @@ function TodayView({ workspace, onCloseDay, ...actions }: { workspace: Workspace
   return <section className="surface"><div className="section-heading"><div><h2>{new Date(`${today}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</h2><p>{tasks.reduce((sum, task) => sum + (task.timeHours || 0), 0)} hours entered · automatically matched to today</p>{isFriday && <p className="friday-note">Friday check-in: close the day to carry unfinished work into Monday.</p>}</div>{tasks.length > 0 && <Button variant="outline" onClick={onCloseDay}>Close day</Button>}</div><TaskList tasks={tasks} plans={workspace.plans} emptyTitle="Nothing scheduled today" emptyDescription="Set a task’s planned date to today and it will appear here automatically." {...actions} /></section>;
 }
 
-function TimelineView({ workspace, ...actions }: { workspace: Workspace } & TaskActions) {
-  const scheduled = workspace.tasks.filter((task) => !task.archived && (task.plannedDate || task.dueDate)).sort((a, b) => (a.plannedDate || a.dueDate || '').localeCompare(b.plannedDate || b.dueDate || ''));
-  if (!scheduled.length) return <section className="surface"><EmptyState title="No scheduled work" description="Add a planned or due date to a task to place it on the timeline." /></section>;
-  return <section className="surface timeline-list">{scheduled.map((task) => <button key={task.id} onClick={() => actions.onEdit(task)}><time>{task.plannedDate || task.dueDate}</time><span style={{ background: workspace.plans.find((plan) => plan.id === task.planId)?.color || '#B0DBF6' }} /><div><strong>{task.title}</strong><small>{task.owners.join(', ') || 'Unassigned'}{task.startTime ? ` · ${task.startTime}${task.endTime ? `–${task.endTime}` : ''}` : ''}</small></div><b>{task.progress}%</b></button>)}</section>;
+function addDays(dateText: string, amount: number) {
+  const date = new Date(`${dateText}T12:00:00`);
+  date.setDate(date.getDate() + amount);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function dayDistance(from: string, to: string) {
+  return Math.round((new Date(`${to}T12:00:00`).getTime() - new Date(`${from}T12:00:00`).getTime()) / 86_400_000);
+}
+
+function GanttChart({ tasks, plans, onEdit, emptyAction }: { tasks: PlannerTask[]; plans: Plan[]; onEdit: (task: PlannerTask) => void; emptyAction?: () => void }) {
+  const scheduled = tasks.filter((task) => !task.archived && (task.plannedDate || task.dueDate)).sort((a, b) => (a.plannedDate || a.dueDate || '').localeCompare(b.plannedDate || b.dueDate || ''));
+  const datedValues = scheduled.flatMap((task) => [task.plannedDate, task.dueDate].filter(Boolean) as string[]).sort();
+  const rangeStart = datedValues[0] || todayIso();
+  const lastDate = datedValues.at(-1) || addDays(rangeStart, 6);
+  const dayCount = Math.min(21, Math.max(7, dayDistance(rangeStart, lastDate) + 1));
+  const dates = Array.from({ length: dayCount }, (_, index) => addDays(rangeStart, index));
+  return <div className="gantt-shell">
+    <div className="gantt-scroll">
+      <div className="gantt-grid" style={{ '--gantt-days': dayCount } as CSSProperties}>
+        <div className="gantt-corner">Task</div>{dates.map((date) => <time className={date === todayIso() ? 'is-today' : ''} key={date}><b>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })}</b><span>{new Date(`${date}T12:00:00`).getDate()}</span></time>)}
+        {scheduled.map((task) => { const start = task.plannedDate || task.dueDate || rangeStart; const end = task.dueDate && task.dueDate >= start ? task.dueDate : start; const columnStart = Math.min(dayCount - 1, Math.max(0, dayDistance(rangeStart, start))); const span = Math.max(1, Math.min(dayCount - columnStart, dayDistance(start, end) + 1)); const plan = plans.find((item) => item.id === task.planId); return <div className="gantt-row" key={task.id}>
+          <button className={`gantt-label ${task.parentId ? 'is-subtask' : ''}`} onClick={() => onEdit(task)}><strong>{task.title}</strong><small>{task.owners.join(', ') || 'Unassigned'}</small></button>
+          <div className="gantt-track">{dates.map((date) => <i className={date === todayIso() ? 'is-today' : ''} key={date} />)}<button className="gantt-bar" style={{ gridColumn: `${columnStart + 1} / span ${span}`, background: plan?.color || '#8CC8F0' }} onClick={() => onEdit(task)} title={`${task.title}: ${start} to ${end}`}><span style={{ width: `${task.progress}%` }} /><b>{task.progress}%</b></button></div>
+        </div>; })}
+      </div>
+    </div>
+    {!scheduled.length && <div className="gantt-empty"><ChartNoAxesGantt /><div><strong>No dated tasks yet</strong><p>Add planned and due dates to build this chart.</p></div>{emptyAction && <Button size="sm" onClick={emptyAction}><Plus /> Add task</Button>}</div>}
+  </div>;
+}
+
+function GanttView({ workspace, ...actions }: { workspace: Workspace } & TaskActions) {
+  const activeTasks = workspace.tasks.filter((task) => !task.archived);
+  return <section className="surface"><div className="section-heading"><div><h2>All scheduled work</h2><p>Click a task or bar to edit its dates.</p></div></div><GanttChart tasks={activeTasks} plans={workspace.plans} onEdit={actions.onEdit} /></section>;
 }
 
 function CalendarView({ workspace, ...actions }: { workspace: Workspace } & TaskActions) {
@@ -337,7 +370,8 @@ function Dashboard({ email, onSignOut }: { email: string; onSignOut: () => void 
     const now = new Date().toISOString();
     const duplicate = { ...task, id: makeId('TASK'), title: `${task.title} copy`, status: 'Starting' as TaskStatus, progress: 0, createdAt: now, updatedAt: now, completedAt: undefined, archived: false };
     persist({ ...workspace, tasks: [...workspace.tasks, duplicate], activity: [...workspace.activity, { id: `${duplicate.id}-${Date.now()}`, taskId: duplicate.id, description: `Duplicated “${task.title}”`, createdAt: now }] });
-    setMessage('Task duplicated');
+    setTaskState({ open: true, task: duplicate });
+    setMessage('Task duplicated — edit the copy now');
   }, [persist, workspace]);
   const archiveTask = useCallback((task: PlannerTask) => {
     const now = new Date().toISOString();
@@ -368,7 +402,7 @@ function Dashboard({ email, onSignOut }: { email: string; onSignOut: () => void 
     if (active === 'Today') return <TodayView workspace={workspace} {...common} onCloseDay={() => { persist({ ...workspace, tasks: closeDay(workspace.tasks, todayIso()) }); setMessage('Incomplete work moved to the next working day'); }} />;
     if (active === 'Tasks') return <TasksView workspace={workspace} onCreate={() => openTask()} {...common} />;
     if (active === 'Plans') return <PlansView workspace={workspace} onCreatePlan={() => setPlanState({ open: true, plan: null })} onEditPlan={(plan) => setPlanState({ open: true, plan })} onCreateTask={(planId) => openTask(null, undefined, planId)} {...common} />;
-    if (active === 'Timeline') return <TimelineView workspace={workspace} {...common} />;
+    if (active === 'Gantt') return <GanttView workspace={workspace} {...common} />;
     if (active === 'Workload') return <WorkloadView tasks={workspace.tasks} />;
     if (active === 'Calendar') return <CalendarView workspace={workspace} {...common} />;
     if (active === 'History') return <HistoryView workspace={workspace} />;
