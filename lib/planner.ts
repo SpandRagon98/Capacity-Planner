@@ -15,19 +15,33 @@ export type PlannerTask = {
   title: string;
   planId?: string;
   parentId?: string;
-  owner?: string;
+  owners: string[];
   status: TaskStatus;
   priority: TaskPriority;
   timeHours?: number;
+  startTime?: string;
+  endTime?: string;
   plannedDate?: string;
   dueDate?: string;
+  tags: string[];
+  dependencyIds: string[];
   progress: number;
   notes?: string;
   createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  archived?: boolean;
   carryoverFrom?: string;
 };
 
-export type Workspace = { tasks: PlannerTask[]; plans: Plan[] };
+export type ActivityEvent = {
+  id: string;
+  taskId?: string;
+  description: string;
+  createdAt: string;
+};
+
+export type Workspace = { tasks: PlannerTask[]; plans: Plan[]; activity: ActivityEvent[] };
 
 export const statusColors: Record<TaskStatus, string> = {
   Starting: '#8CC8F0',
@@ -53,6 +67,14 @@ export function todayIso() {
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
+export function calculateEndTime(startTime?: string, durationHours?: number) {
+  if (!startTime || durationHours === undefined || durationHours < 0) return undefined;
+  const [hours, minutes] = startTime.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return undefined;
+  const totalMinutes = (hours * 60 + minutes + Math.round(durationHours * 60)) % (24 * 60);
+  return `${String(Math.floor(totalMinutes / 60)).padStart(2, '0')}:${String(totalMinutes % 60).padStart(2, '0')}`;
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
@@ -72,36 +94,48 @@ function readKey<T>(db: IDBDatabase, key: string, fallback: T): Promise<T> {
   });
 }
 
-type LegacyTask = Partial<PlannerTask> & { plan?: string; plannedHours?: number; estimate?: number };
+type LegacyTask = Partial<PlannerTask> & { owner?: string; plan?: string; plannedHours?: number; estimate?: number };
 
 export async function loadWorkspace(): Promise<Workspace> {
   const db = await openDb();
-  const [storedTasks, storedPlans] = await Promise.all([
+  const [storedTasks, storedPlans, activity] = await Promise.all([
     readKey<LegacyTask[]>(db, 'tasks', []),
     readKey<Plan[]>(db, 'plans', []),
+    readKey<ActivityEvent[]>(db, 'activity', []),
   ]);
   const legacyPlanNames = [...new Set(storedTasks.map((task) => task.plan?.trim()).filter(Boolean) as string[])];
   const plans = storedPlans.length
     ? storedPlans
     : legacyPlanNames.map((name, index) => ({ id: makeId('PLAN'), name, color: PLAN_COLORS[index % PLAN_COLORS.length] }));
   const planByName = new Map(plans.map((plan) => [plan.name, plan.id]));
-  const tasks = storedTasks.map((task) => ({
+  const tasks = storedTasks.map((task) => {
+    const timeHours = task.timeHours ?? (task.plannedHours ? task.plannedHours : task.estimate || undefined);
+    const owners = Array.isArray(task.owners) ? task.owners.filter(Boolean) : task.owner ? [task.owner] : [];
+    return ({
     id: task.id || makeId('TASK'),
     title: task.title || 'Untitled task',
     planId: task.planId || (task.plan ? planByName.get(task.plan) : undefined),
     parentId: task.parentId,
-    owner: task.owner || undefined,
+    owners,
     status: task.status || 'Starting',
     priority: task.priority || 'Medium',
-    timeHours: task.timeHours ?? (task.plannedHours ? task.plannedHours : task.estimate || undefined),
+    timeHours,
+    startTime: task.startTime || undefined,
+    endTime: task.endTime || calculateEndTime(task.startTime, timeHours),
     plannedDate: task.plannedDate || undefined,
     dueDate: task.dueDate || undefined,
+    tags: Array.isArray(task.tags) ? task.tags.filter(Boolean) : [],
+    dependencyIds: Array.isArray(task.dependencyIds) ? task.dependencyIds.filter(Boolean) : [],
     progress: task.progress ?? 0,
     notes: task.notes || undefined,
     createdAt: task.createdAt || new Date().toISOString(),
+    updatedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
+    completedAt: task.completedAt,
+    archived: Boolean(task.archived),
     carryoverFrom: task.carryoverFrom,
-  } satisfies PlannerTask));
-  return { tasks, plans };
+    } satisfies PlannerTask);
+  });
+  return { tasks, plans, activity };
 }
 
 export async function saveWorkspace(workspace: Workspace): Promise<void> {
@@ -111,6 +145,7 @@ export async function saveWorkspace(workspace: Workspace): Promise<void> {
     const store = transaction.objectStore(STORE);
     store.put(workspace.tasks, 'tasks');
     store.put(workspace.plans, 'plans');
+    store.put(workspace.activity, 'activity');
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
@@ -167,15 +202,20 @@ export async function exportWorkbook(scope: 'All' | 'Tasks' | 'Plans', workspace
       task.title,
       task.parentId ? taskById.get(task.parentId)?.title || '' : '',
       task.planId ? planById.get(task.planId)?.name || '' : 'Standalone',
-      task.owner || '',
+      task.owners.join(', '),
       task.status,
       task.timeHours ?? '',
+      task.startTime || '',
+      task.endTime || '',
       task.plannedDate || '',
       task.dueDate || '',
+      task.progress,
+      task.tags.join(', '),
+      task.dependencyIds.map((id) => taskById.get(id)?.title || id).join(', '),
       task.notes || '',
     ]);
-    addSheet('Tasks', [['Tasks and subtasks'], [], ['Task ID', 'Type', 'Task', 'Parent task', 'Plan', 'Owner', 'Status', 'Time h', 'Planned date', 'Due date', 'Notes'], ...taskRows], [18, 12, 34, 30, 26, 20, 16, 10, 14, 14, 40]);
+    addSheet('Tasks', [['Tasks and subtasks'], [], ['Task ID', 'Type', 'Task', 'Parent task', 'Plan', 'Owners', 'Status', 'Time h', 'Start time', 'End time', 'Planned date', 'Due date', 'Progress %', 'Tags', 'Dependencies', 'Notes'], ...taskRows], [18, 12, 34, 30, 26, 28, 16, 10, 12, 12, 14, 14, 12, 24, 30, 40]);
   }
 
-  XLSX.writeFile(workbook, `Capacity_Planner_${scope}_${todayIso()}.xlsx`);
+  XLSX.writeFile(workbook, `Capexity_${scope}_${todayIso()}.xlsx`);
 }

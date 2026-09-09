@@ -5,7 +5,7 @@ import './globals.css';
 const montserrat = Montserrat({ variable: '--font-montserrat', subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Capacity — Task & Capacity Planner',
+  title: 'Capexity — Task & Capacity Planner',
   description: 'Local-first project planning, daily execution, and workload management.',
 };
 

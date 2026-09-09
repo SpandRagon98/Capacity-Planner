@@ -1,4 +1,4 @@
-name: Deploy Capacity Planner
+name: Deploy Capexity
 
 on:
   push:

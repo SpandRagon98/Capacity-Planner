@@ -1,6 +1,6 @@
-# Capacity Planner
+# Capexity
 
-A local-first task and capacity planning workspace built with React, Vinext, and shadcn/ui. The interface uses Montserrat throughout and starts with an empty workspace so teams can create separate plans or standalone tasks, add subtasks to either, optionally track time, and export the hierarchy to Excel. Light and dark themes are included.
+A local-first task and capacity planning workspace built with React, Vinext, and shadcn/ui. The interface uses Montserrat throughout and starts with an empty workspace so teams can create separate plans or standalone tasks, add subtasks to either, assign multiple owners, schedule start and calculated end times, and export the hierarchy to Excel. Light and dark themes are included.
 
 ## Run locally
 
