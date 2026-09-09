@@ -31,8 +31,14 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Prepare redirect to the shared Capexity app
-        run: npm run prepare:github-redirect
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Capexity
+        run: npm run build
+
+      - name: Prepare GitHub Pages artifact
+        run: npm run prepare:pages
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

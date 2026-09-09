@@ -1,6 +1,6 @@
 # Capexity
 
-A shared task and capacity planning workspace built with React, Vinext, D1, and shadcn/ui. Spandan and Mandhya can create named workspaces, work on the same saved plans and tasks, and receive updates made by the other member. The interface uses Montserrat throughout and includes subtasks, multiple owners, scheduling, Gantt charts, Excel export, and light and dark themes.
+A shared task and capacity planning workspace built with React, Vinext, Google Sheets, and shadcn/ui. Spandan and Mandhya can create named workspaces, work on the same saved plans and tasks, and receive updates made by the other member. The interface uses Montserrat throughout and includes subtasks, multiple owners, scheduling, resizable Gantt charts, column filters, Excel export, PowerPoint export, and light and dark themes.
 
 ## Run locally
 
@@ -18,10 +18,14 @@ npx tsc --noEmit
 npm run build
 ```
 
-The server-backed app is written to `dist/server` with browser assets in `dist/client`.
+The static app is written to `dist/client`.
 
 ## Deployment
 
-Every push to `main` runs `.github/workflows/deploy.yml`; the GitHub Pages address forwards visitors to the shared server-backed deployment.
+Every push to `main` runs `.github/workflows/deploy.yml` and publishes the static app to GitHub Pages. It has no ChatGPT or OpenAI runtime dependency.
 
-> The login is a client-side prototype gate, not production authentication. Do not store sensitive data in the hosted demo.
+## Google Sheets storage
+
+Follow [google-apps-script/README.md](google-apps-script/README.md) once to deploy the small spreadsheet bridge. Paste its `/exec` URL into **Settings > Google Sheets storage**. Until that URL is connected, Capexity uses browser-local IndexedDB storage.
+
+> The login is a client-side access gate, not production authentication. Do not store sensitive data in the hosted demo.

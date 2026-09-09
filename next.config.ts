@@ -3,7 +3,7 @@ import type { NextConfig } from 'next';
 const isGitHubPages = process.env.GITHUB_ACTIONS === 'true';
 
 const nextConfig: NextConfig = {
-  output: isGitHubPages ? 'export' : undefined,
+  output: 'export',
   trailingSlash: true,
   assetPrefix: isGitHubPages ? '/Capacity-Planner' : '',
 };
