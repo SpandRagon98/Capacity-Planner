@@ -1,34 +1,57 @@
 export type TaskStatus = 'Starting' | 'In Progress' | 'Completed' | 'Locked';
+export type TaskPriority = 'Low' | 'Medium' | 'High';
+
+export type Plan = {
+  id: string;
+  name: string;
+  description?: string;
+  owner?: string;
+  dueDate?: string;
+  color: string;
+};
 
 export type PlannerTask = {
   id: string;
   title: string;
-  plan: string;
-  owner: string;
+  planId?: string;
+  parentId?: string;
+  owner?: string;
   status: TaskStatus;
-  priority: 'Low' | 'Medium' | 'High';
-  estimate: number;
+  priority: TaskPriority;
+  timeHours?: number;
+  plannedDate?: string;
+  dueDate?: string;
   progress: number;
-  startDate: string;
-  dueDate: string;
-  plannedDate: string;
-  plannedHours: number;
-  carryoverFrom?: string;
   notes?: string;
+  createdAt: string;
+  carryoverFrom?: string;
 };
+
+export type Workspace = { tasks: PlannerTask[]; plans: Plan[] };
 
 export const statusColors: Record<TaskStatus, string> = {
-  Starting: '#B0DBF6',
-  'In Progress': '#EFB0F6',
-  Completed: '#C3D1AC',
-  Locked: '#FDB1AF',
+  Starting: '#8CC8F0',
+  'In Progress': '#C58ADD',
+  Completed: '#88B968',
+  Locked: '#F08C86',
 };
 
-export const initialTasks: PlannerTask[] = [];
-
+const PLAN_COLORS = ['#8CC8F0', '#C58ADD', '#88B968', '#F08C86', '#E8B65C'];
 const DB_NAME = 'task-capacity-planner-v2';
 const STORE = 'planner';
-const KEY = 'tasks';
+
+export function makeId(prefix: 'TASK' | 'PLAN') {
+  const value = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${value.toUpperCase()}`;
+}
+
+export function todayIso() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -41,21 +64,55 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function loadTasks(): Promise<PlannerTask[]> {
-  const db = await openDb();
+function readKey<T>(db: IDBDatabase, key: string, fallback: T): Promise<T> {
   return new Promise((resolve) => {
-    const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(KEY);
-    request.onsuccess = () => resolve((request.result as PlannerTask[] | undefined) ?? initialTasks);
-    request.onerror = () => resolve(initialTasks);
+    const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+    request.onsuccess = () => resolve((request.result as T | undefined) ?? fallback);
+    request.onerror = () => resolve(fallback);
   });
 }
 
-export async function saveTasks(tasks: PlannerTask[]): Promise<void> {
+type LegacyTask = Partial<PlannerTask> & { plan?: string; plannedHours?: number; estimate?: number };
+
+export async function loadWorkspace(): Promise<Workspace> {
+  const db = await openDb();
+  const [storedTasks, storedPlans] = await Promise.all([
+    readKey<LegacyTask[]>(db, 'tasks', []),
+    readKey<Plan[]>(db, 'plans', []),
+  ]);
+  const legacyPlanNames = [...new Set(storedTasks.map((task) => task.plan?.trim()).filter(Boolean) as string[])];
+  const plans = storedPlans.length
+    ? storedPlans
+    : legacyPlanNames.map((name, index) => ({ id: makeId('PLAN'), name, color: PLAN_COLORS[index % PLAN_COLORS.length] }));
+  const planByName = new Map(plans.map((plan) => [plan.name, plan.id]));
+  const tasks = storedTasks.map((task) => ({
+    id: task.id || makeId('TASK'),
+    title: task.title || 'Untitled task',
+    planId: task.planId || (task.plan ? planByName.get(task.plan) : undefined),
+    parentId: task.parentId,
+    owner: task.owner || undefined,
+    status: task.status || 'Starting',
+    priority: task.priority || 'Medium',
+    timeHours: task.timeHours ?? (task.plannedHours ? task.plannedHours : task.estimate || undefined),
+    plannedDate: task.plannedDate || undefined,
+    dueDate: task.dueDate || undefined,
+    progress: task.progress ?? 0,
+    notes: task.notes || undefined,
+    createdAt: task.createdAt || new Date().toISOString(),
+    carryoverFrom: task.carryoverFrom,
+  } satisfies PlannerTask));
+  return { tasks, plans };
+}
+
+export async function saveWorkspace(workspace: Workspace): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
-    const request = db.transaction(STORE, 'readwrite').objectStore(STORE).put(tasks, KEY);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    const transaction = db.transaction(STORE, 'readwrite');
+    const store = transaction.objectStore(STORE);
+    store.put(workspace.tasks, 'tasks');
+    store.put(workspace.plans, 'plans');
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
   });
 }
 
@@ -71,41 +128,54 @@ export function closeDay(tasks: PlannerTask[], dateText: string): PlannerTask[] 
     : task);
 }
 
-type ExportKind = 'Daily' | 'Weekly' | 'Plan';
-
-export async function exportWorkbook(kind: ExportKind, tasks: PlannerTask[]) {
+export async function exportWorkbook(scope: 'All' | 'Tasks' | 'Plans', workspace: Workspace) {
   const XLSX = await import('xlsx-js-style');
-  const today = new Date().toISOString().slice(0, 10);
-  const wb = XLSX.utils.book_new();
-  const titleStyle = { font:{ name:'Montserrat', bold:true, sz:18, color:{ rgb:'111111' } }, fill:{ fgColor:{ rgb:'B0DBF6' } }, alignment:{ vertical:'center' as const } };
-  const headerStyle = { font:{ name:'Montserrat', bold:true, color:{ rgb:'FFFFFF' } }, fill:{ fgColor:{ rgb:'111111' } }, alignment:{ vertical:'center' as const }, border:{ bottom:{ style:'thin', color:{ rgb:'E8E8EB' } } } };
-  const bodyBorder = { top:{ style:'thin', color:{ rgb:'E8E8EB' } }, bottom:{ style:'thin', color:{ rgb:'E8E8EB' } }, left:{ style:'thin', color:{ rgb:'E8E8EB' } }, right:{ style:'thin', color:{ rgb:'E8E8EB' } } };
+  const workbook = XLSX.utils.book_new();
+  const planById = new Map(workspace.plans.map((plan) => [plan.id, plan]));
+  const taskById = new Map(workspace.tasks.map((task) => [task.id, task]));
+  const heading = { font: { name: 'Montserrat', bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '171717' } } };
+  const title = { font: { name: 'Montserrat', bold: true, sz: 18 }, fill: { fgColor: { rgb: 'B0DBF6' } } };
 
-  const addSheet = (name: string, rows: (string | number)[][]) => {
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
-    for (let c=range.s.c;c<=range.e.c;c++) {
-      const title = ws[XLSX.utils.encode_cell({r:0,c})]; if (title) title.s = titleStyle;
-      const header = ws[XLSX.utils.encode_cell({r:2,c})]; if (header) header.s = headerStyle;
+  const addSheet = (name: string, rows: (string | number)[][], widths: number[]) => {
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      const titleCell = sheet[XLSX.utils.encode_cell({ r: 0, c: column })];
+      const headingCell = sheet[XLSX.utils.encode_cell({ r: 2, c: column })];
+      if (titleCell) titleCell.s = title;
+      if (headingCell) headingCell.s = heading;
     }
-    for (let r=3;r<=range.e.r;r++) for (let c=range.s.c;c<=range.e.c;c++) {
-      const cell = ws[XLSX.utils.encode_cell({r,c})];
-      if (cell) cell.s = { font:{ name:'Montserrat', sz:10 }, border:bodyBorder, alignment:{ vertical:'center', wrapText:true } };
-    }
-    ws['!cols'] = [{wch:13},{wch:34},{wch:26},{wch:15},{wch:14},{wch:12},{wch:12},{wch:14}];
-    ws['!rows'] = [{hpt:30},{hpt:8},{hpt:24}];
-    ws['!autofilter'] = { ref:`A3:${XLSX.utils.encode_col(range.e.c)}${range.e.r+1}` };
-    ws['!freeze'] = { xSplit:0, ySplit:3, topLeftCell:'A4', activePane:'bottomLeft', state:'frozen' };
-    XLSX.utils.book_append_sheet(wb, ws, name);
+    sheet['!cols'] = widths.map((wch) => ({ wch }));
+    sheet['!rows'] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 24 }];
+    sheet['!autofilter'] = { ref: `A3:${XLSX.utils.encode_col(range.e.c)}${range.e.r + 1}` };
+    XLSX.utils.book_append_sheet(workbook, sheet, name);
   };
 
-  const taskRows = tasks.map(t => [t.id,t.title,t.plan,t.owner,t.status,t.estimate,t.progress/100,t.dueDate]);
-  addSheet(kind === 'Plan' ? 'Task Register' : 'Tasks', [[`${kind} ${kind === 'Daily' ? 'Tasks' : kind === 'Weekly' ? 'Review' : 'Plan Export'}`],[],['ID','Task','Plan','Owner','Status','Estimate h','Progress','Due'],...taskRows]);
-  const summary = kind === 'Daily'
-    ? [['Daily Summary'],[],['Date','Capacity','Planned h','Utilization','Completed','Pending','Carried in'],[today,8,6.5,.8125,tasks.filter(t=>t.status==='Completed').length,tasks.filter(t=>t.status!=='Completed').length,tasks.filter(t=>t.carryoverFrom).length]]
-    : [['Weekly Summary'],[],['Week','Capacity','Planned h','Utilization','Completed','Carryover'],['07–11 Sep 2026',40,33.25,.83125,tasks.filter(t=>t.status==='Completed').length,tasks.filter(t=>t.carryoverFrom).length]];
-  addSheet(kind === 'Plan' ? 'Plan Overview' : kind === 'Daily' ? 'Daily Summary' : 'Weekly Summary', summary);
-  if (kind === 'Plan') addSheet('Dependencies', [['Dependencies'],[],['From task','Relationship','To task','Conflict']]);
-  const planName=(tasks.find(task=>task.plan)?.plan||'Workspace').replace(/[^a-z0-9]+/gi,'_').replace(/^_|_$/g,'');
-  XLSX.writeFile(wb, kind === 'Daily' ? `Daily_Tasks_${today}.xlsx` : kind === 'Weekly' ? `Weekly_Review_${today}.xlsx` : `Plan_${planName}_${today}.xlsx`);
+  if (scope !== 'Tasks') {
+    const planRows = workspace.plans.map((plan) => {
+      const tasks = workspace.tasks.filter((task) => task.planId === plan.id);
+      return [plan.id, plan.name, plan.description || '', plan.owner || '', plan.dueDate || '', tasks.filter((task) => !task.parentId).length, tasks.filter((task) => task.parentId).length, tasks.reduce((sum, task) => sum + (task.timeHours || 0), 0), tasks.filter((task) => task.status === 'Completed').length];
+    });
+    addSheet('Plans', [['Plans'], [], ['Plan ID', 'Plan', 'Description', 'Owner', 'Due', 'Tasks', 'Subtasks', 'Total time h', 'Completed'], ...planRows], [18, 28, 38, 20, 14, 10, 10, 14, 12]);
+  }
+
+  if (scope !== 'Plans') {
+    const ordered = [...workspace.tasks].sort((a, b) => (a.parentId || a.id).localeCompare(b.parentId || b.id) || Number(Boolean(a.parentId)) - Number(Boolean(b.parentId)));
+    const taskRows = ordered.map((task) => [
+      task.id,
+      task.parentId ? 'Subtask' : 'Task',
+      task.title,
+      task.parentId ? taskById.get(task.parentId)?.title || '' : '',
+      task.planId ? planById.get(task.planId)?.name || '' : 'Standalone',
+      task.owner || '',
+      task.status,
+      task.timeHours ?? '',
+      task.plannedDate || '',
+      task.dueDate || '',
+      task.notes || '',
+    ]);
+    addSheet('Tasks', [['Tasks and subtasks'], [], ['Task ID', 'Type', 'Task', 'Parent task', 'Plan', 'Owner', 'Status', 'Time h', 'Planned date', 'Due date', 'Notes'], ...taskRows], [18, 12, 34, 30, 26, 20, 16, 10, 14, 14, 40]);
+  }
+
+  XLSX.writeFile(workbook, `Capacity_Planner_${scope}_${todayIso()}.xlsx`);
 }
