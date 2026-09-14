@@ -365,6 +365,33 @@ export async function saveSharedWorkspace(
     : localSaveWorkspace(id, workspace, expectedVersion);
 }
 
+export async function interpretVoiceCommand(
+  config: WorkspaceStoreConfig,
+  payload: {
+    voiceToken: string;
+    transcript: string;
+    today: string;
+    tasks: Array<Record<string, string>>;
+    plans: Array<Record<string, string>>;
+  },
+) {
+  return sheetRequest<{
+    actions: Array<{
+      op: 'create' | 'update' | 'delete';
+      id?: string;
+      title?: string;
+      parentId?: string;
+      planId?: string;
+      status?: TaskStatus;
+      date?: string;
+      start?: string;
+      hours?: number;
+    }>;
+    question: string;
+    usage?: { inputTokens: number; outputTokens: number };
+  }>(config, 'voice', payload);
+}
+
 export function nextWorkingDay(dateText: string) {
   const date = new Date(`${dateText}T12:00:00`);
   do date.setDate(date.getDate() + 1);

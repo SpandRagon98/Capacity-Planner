@@ -10,6 +10,7 @@
     "build": "vinext build",
     "prepare:pages": "node scripts/prepare-pages.mjs",
     "lint": "oxlint",
+    "test:voice": "node --test tests/voice.test.cjs tests/apps-script-voice.test.cjs",
     "format": "oxfmt"
   },
   "dependencies": {

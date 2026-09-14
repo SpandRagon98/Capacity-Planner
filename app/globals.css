@@ -115,3 +115,24 @@ button,.surface,.simple-task-row,.plan-list>button{transition:background-color 1
 
 @media(max-width:1260px){.filter-grid{grid-template-columns:repeat(3,minmax(150px,1fr))}.export-simple{grid-template-columns:repeat(2,minmax(0,1fr))}.endpoint-control{flex-direction:column;align-items:stretch}.endpoint-control input{min-width:240px}}
 @media(max-width:760px){.filter-grid{grid-template-columns:1fr}.filter-panel{margin-top:-4px}.gantt-tools{align-items:flex-start;gap:8px}.gantt-tools>div{align-items:flex-start;flex-direction:column}.gantt-tools span{display:none}.endpoint-control,.template-grid{width:100%;flex-basis:100%!important}.endpoint-control input{min-width:0}.template-grid{grid-template-columns:1fr}.topbar>div:last-child{gap:5px}.topbar>div:last-child button{font-size:0}.topbar>div:last-child button svg{margin:0}.export-simple{grid-template-columns:1fr}}
+
+.voice-sheet{width:min(540px,100vw)!important;max-width:none!important;background:var(--surface)!important;gap:0!important}
+.voice-sheet>[data-slot="sheet-header"]{padding:28px 28px 20px;border-bottom:1px solid var(--border)}
+.voice-content{display:flex;flex-direction:column;gap:18px;padding:24px 28px 32px;overflow:auto}
+.voice-mic-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.voice-mic-row>[data-slot="native-select-wrapper"]{flex:1;min-width:175px}
+.voice-field{display:grid;gap:8px;font-size:13px;font-weight:700}
+.voice-field small{font-size:11px;color:var(--text-soft);font-weight:500}
+.voice-field textarea{min-height:112px;resize:vertical;font-size:14px;line-height:1.5}
+.voice-hint{font-size:12px;line-height:1.5;color:var(--text-soft);margin:0}
+.voice-notice{border:1px solid var(--border);background:color-mix(in srgb,var(--surface) 92%,var(--foreground));padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5}
+.voice-confirm{display:grid;gap:12px;border:1px solid var(--border);border-radius:12px;padding:16px}
+.voice-confirm strong{font-size:14px}
+.voice-confirm ul{margin:0;padding-left:20px;font-size:13px}
+.voice-confirm>div{display:flex;gap:8px;flex-wrap:wrap}
+.voice-usage{font-size:11px;color:var(--text-soft)}
+.voice-setup{border-top:1px solid var(--border);padding-top:14px;font-size:12px;line-height:1.6;color:var(--text-soft)}
+.voice-setup summary{cursor:pointer;font-weight:700;color:var(--foreground)}
+.voice-setup ol{margin:10px 0 0;padding-left:20px}
+.voice-setup code{font-size:11px;color:var(--foreground)}
+@media(max-width:760px){.voice-sheet>[data-slot="sheet-header"]{padding:22px 20px 16px}.voice-content{padding:20px}.voice-mic-row>button{flex:1}}

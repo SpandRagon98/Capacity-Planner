@@ -31,6 +31,7 @@ import {
   LockKeyhole,
   LogOut,
   Moon,
+  Mic,
   Pencil,
   Plus,
   RotateCcw,
@@ -45,6 +46,7 @@ import {
   WrapText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { VoiceAssistant } from '@/components/voice-assistant';
 import { Input } from '@/components/ui/input';
 import {
   NativeSelect,
@@ -98,6 +100,7 @@ import {
   Workspace,
   WorkspaceSummary,
 } from '@/lib/planner';
+import { applyVoiceActions, workspaceFingerprint, type VoiceIntent } from '@/lib/voice';
 
 type View =
   | 'Home'
@@ -2311,6 +2314,7 @@ function Dashboard({
     plan: Plan | null;
   }>({ open: false, plan: null });
   const [message, setMessage] = useState('');
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const versionRef = useRef(0);
   const activeWorkspaceIdRef = useRef('');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2643,6 +2647,16 @@ function Dashboard({
     },
     [persist, workspace],
   );
+  const applyVoice = useCallback(
+    (actions: VoiceIntent[], fingerprint: string, workspaceId: string) => {
+      if (activeWorkspaceIdRef.current !== workspaceId || workspaceFingerprint(workspace) !== fingerprint)
+        throw new Error('This workspace changed. Please repeat the voice command before applying it.');
+      const next = applyVoiceActions(workspace, actions);
+      persist(next);
+      setMessage(`${actions.length} voice task change${actions.length === 1 ? '' : 's'} applied`);
+    },
+    [persist, workspace],
+  );
   const changeTheme = (next: Theme) => {
     setTheme(next);
     localStorage.setItem('tcp-theme', next);
@@ -2865,6 +2879,9 @@ function Dashboard({
             >
               <SlidersHorizontal /> Filters
             </Button>
+            <Button variant="outline" onClick={() => setVoiceOpen(true)}>
+              <Mic /> Voice
+            </Button>
             <Button
               variant="outline"
               onClick={() => setPlanState({ open: true, plan: null })}
@@ -2919,6 +2936,14 @@ function Dashboard({
           setPlanState((current) => ({ ...current, open }))
         }
         onSave={savePlan}
+      />
+      <VoiceAssistant
+        open={voiceOpen}
+        onOpenChange={setVoiceOpen}
+        workspace={workspace}
+        workspaceId={activeWorkspaceId}
+        config={storeConfig}
+        onApply={applyVoice}
       />
     </SidebarProvider>
   );

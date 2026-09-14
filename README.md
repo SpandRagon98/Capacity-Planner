@@ -1,6 +1,6 @@
 # Capexity
 
-A shared task and capacity planning workspace built with React, Vinext, Google Sheets, and shadcn/ui. Spandan and Mandhya can create named workspaces, work on the same saved plans and tasks, and receive updates made by the other member. The interface uses Montserrat throughout and includes subtasks, multiple owners, scheduling, resizable Gantt charts, column filters, Excel export, PowerPoint export, and light and dark themes.
+A shared task and capacity planning workspace built with React, Vinext, Google Sheets, and shadcn/ui. Spandan and Mandhya can create named workspaces, work on the same saved plans and tasks, and receive updates made by the other member. The interface uses Montserrat throughout and includes subtasks, multiple owners, scheduling, resizable Gantt charts, column filters, Excel export, PowerPoint export, light and dark themes, and optional Claude-assisted voice task commands.
 
 ## Run locally
 
@@ -15,6 +15,7 @@ Open `http://localhost:3000`.
 
 ```bash
 npx tsc --noEmit
+npm run test:voice
 npm run build
 ```
 
@@ -27,5 +28,7 @@ Every push to `main` runs `.github/workflows/deploy.yml` and publishes the stati
 ## Google Sheets storage
 
 Follow [google-apps-script/README.md](google-apps-script/README.md) once to deploy the small spreadsheet bridge. Paste its `/exec` URL into **Settings > Google Sheets storage**. Until that URL is connected, Capexity uses browser-local IndexedDB storage.
+
+The optional Voice panel uses browser speech recognition for English/Hinglish (`en-IN`) or Hindi (`hi-IN`), then sends only the text transcript and a small relevant task list to Claude through the Apps Script bridge. Claude credentials are Script Properties, never frontend configuration. Follow the [voice setup steps](google-apps-script/README.md#enable-the-optional-claude-voice-assistant) and use a new key if one has ever been pasted into a chat or other untrusted place.
 
 > The login is a client-side access gate, not production authentication. Do not store sensitive data in the hosted demo.
