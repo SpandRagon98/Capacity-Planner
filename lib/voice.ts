@@ -26,6 +26,30 @@ export type VoiceInterpretation = {
   usage?: { inputTokens: number; outputTokens: number };
 };
 
+const VOICE_STOP_PATTERNS = [
+  /(?:^|\s)(?:please\s+)?stop\s+(?:listening|recording)(?:\s+now)?[.!?,;:\s]*$/iu,
+  /(?:^|\s)(?:please\s+)?(?:listening|recording)\s+stop(?:\s+now)?[.!?,;:\s]*$/iu,
+  /(?:^|\s)(?:bas\s+)?(?:sunna|recording)\s+band\s+karo[.!?,;:\s]*$/iu,
+  /(?:^|\s)(?:बस\s+)?(?:सुनना|रिकॉर्डिंग|रिकार्डिंग)\s+बंद\s+करो[।.!?,;:\s]*$/u,
+];
+
+/** Removes a spoken stop phrase only when it appears at the end of a recording. */
+export function voiceStopCommand(value: string): {
+  command: string;
+  shouldStop: boolean;
+} {
+  const text = value.trim();
+  for (const pattern of VOICE_STOP_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match)
+      return {
+        command: text.slice(0, match.index).trim().replace(/[।.!?,;:]+$/u, ''),
+        shouldStop: true,
+      };
+  }
+  return { command: text, shouldStop: false };
+}
+
 /** High-certainty commands are handled locally, so they spend zero Claude tokens. */
 export function localVoiceCommand(workspace: Workspace, transcript: string): VoiceIntent[] | null {
   const text = transcript.trim().replace(/[.!?]+$/g, '').replace(/\s+/g, ' ');

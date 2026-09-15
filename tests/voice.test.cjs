@@ -26,7 +26,7 @@ new Function('require', 'module', 'exports', compiled)(
   exported,
   exported.exports,
 );
-const { applyVoiceActions, localVoiceCommand, voiceContext, voiceDeleteSummary, workspaceFingerprint } = exported.exports;
+const { applyVoiceActions, localVoiceCommand, voiceContext, voiceDeleteSummary, voiceStopCommand, workspaceFingerprint } = exported.exports;
 
 function task(id, title, parentId) {
   return {
@@ -86,4 +86,23 @@ test('uses zero-token local actions only for unambiguous commands', () => {
   assert.deepEqual(localVoiceCommand(current, 'delete task Send report'), [{ op: 'delete', id: 'A' }]);
   assert.equal(localVoiceCommand(current, 'add task Review deck tomorrow'), null);
   assert.equal(localVoiceCommand(current, 'कल budget टास्क बनाओ'), null);
+});
+
+test('detects explicit English, Hinglish and Hindi stop phrases only at the end', () => {
+  assert.deepEqual(voiceStopCommand('add task Buy milk stop listening'), {
+    command: 'add task Buy milk',
+    shouldStop: true,
+  });
+  assert.deepEqual(voiceStopCommand('complete task Send report recording band karo'), {
+    command: 'complete task Send report',
+    shouldStop: true,
+  });
+  assert.deepEqual(voiceStopCommand('नई रिपोर्ट टास्क बनाओ रिकॉर्डिंग बंद करो।'), {
+    command: 'नई रिपोर्ट टास्क बनाओ',
+    shouldStop: true,
+  });
+  assert.deepEqual(voiceStopCommand('add task Stop listening research'), {
+    command: 'add task Stop listening research',
+    shouldStop: false,
+  });
 });
